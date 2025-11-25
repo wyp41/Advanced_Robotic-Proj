@@ -10,6 +10,7 @@ __status__    = "Product"
 '''
 QP-Based Weighted Whole-Body Control
 '''
+# import packages
 
 import osqp
 import Startups.memory_manager as MM
