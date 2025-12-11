@@ -60,6 +60,12 @@ class UserCommand(object):
         self.wave_count = 0
         self.wave_hand  = 1
 
+        # self parameters
+        self.time = 0
+        self.task1_start = False
+        self.task2_start = False
+        self.step = np.array([-0.01]*13)
+
         # initialize the controller
         if self.controller == 'keyboard':
             self.filedes = termios.tcgetattr(sys.stdin)
@@ -106,6 +112,7 @@ class UserCommand(object):
                 self.mode = self.target_mode
 
     def operate(self):
+        self.time += 1
         if self.controller == 'keyboard':
             # read keyboard
             is_input, _, _ = select.select([sys.stdin], [], [], 0.01)  # adding timeout to this keyboard input
@@ -203,6 +210,35 @@ class UserCommand(object):
                     else:
                         self.parameter[BODY_YAW_RATE]['value_raw'] = 0
 
+        if self.time > 40:
+            # self.task1_start = True
+            self.task2_start = True
+        
+        if self.task1_start:
+            # Task 1
+            idx = COM_POSITION_Z
+            if PARAMETER_MAX[idx] < self.parameter[idx]['value_raw']:
+                self.step[idx] = -abs(self.step[idx])
+            elif self.parameter[idx]['value_raw'] < PARAMETER_MIN[idx]:
+                self.step[idx] = abs(self.step[idx])
+
+            self.parameter[idx]['value_raw'] += self.step[idx]
+        
+        if self.task2_start:
+            # Task 2
+            self.mode = WALK
+            self.in_wave = True
+            # idx = COM_VELOCITY_X
+            # idx = COM_VELOCITY_Y
+            # idx = FOOT_YAW_LEFT
+            # if PARAMETER_MAX[idx] < self.parameter[idx]['value_raw']:
+            #     self.step[idx] = -abs(self.step[idx])
+            # elif self.parameter[idx]['value_raw'] < PARAMETER_MIN[idx]:
+            #     self.step[idx] = abs(self.step[idx])
+
+            # self.parameter[idx]['value_raw'] += self.step[idx]
+
+
         # set user input to shared memory
         for idx in PARAMETER_ID_LIST:
             self.parameter[idx]['value_filter'] = MF.exp_filter(self.parameter[idx]['value_filter'], self.parameter[idx]['value_raw'], 0.8)
@@ -218,33 +254,54 @@ class UserCommand(object):
                       }
         MM.USER_COMMAND.set(input_data)
 
+    # def wave(self):
+    #     if self.wave_count < arm_trajectory[0].size:
+    #         if self.wave_hand == -1:
+    #             for idx, joint in enumerate(ARM_JOINT_LIST[0:3]):
+    #                 Bruce.joint[joint]['q_goal'] = arm_trajectory[idx][self.wave_count]
+    #             for idx, joint in enumerate(ARM_JOINT_LIST[3:6]):
+    #                 Bruce.joint[joint]['q_goal'] = arm_position_nominal[idx + 3]
+    #         elif self.wave_hand == 1:
+    #             for idx, joint in enumerate(ARM_JOINT_LIST[0:3]):
+    #                 Bruce.joint[joint]['q_goal'] = arm_position_nominal[idx]
+    #             for idx, joint in enumerate(ARM_JOINT_LIST[3:6]):
+    #                 Bruce.joint[joint]['q_goal'] = arm_trajectory[idx + 3][self.wave_count]
+    #         else:
+    #             for idx, joint in enumerate(ARM_JOINT_LIST):
+    #                 Bruce.joint[joint]['q_goal'] = arm_trajectory[idx][self.wave_count]
+    #         Bruce.set_command_arm_positions()
+    #         self.wave_count += 1
+    #     else:
+    #         self.wave_count = 0
+    #         self.in_wave = False
+    #         val = random.random()
+    #         if val > 0.666:
+    #             self.wave_hand = -1
+    #         elif val > 0.333:
+    #             self.wave_hand = 1
+    #         else:
+    #             self.wave_hand = 2
+
     def wave(self):
-        if self.wave_count < arm_trajectory[0].size:
-            if self.wave_hand == -1:
-                for idx, joint in enumerate(ARM_JOINT_LIST[0:3]):
-                    Bruce.joint[joint]['q_goal'] = arm_trajectory[idx][self.wave_count]
-                for idx, joint in enumerate(ARM_JOINT_LIST[3:6]):
-                    Bruce.joint[joint]['q_goal'] = arm_position_nominal[idx + 3]
-            elif self.wave_hand == 1:
-                for idx, joint in enumerate(ARM_JOINT_LIST[0:3]):
-                    Bruce.joint[joint]['q_goal'] = arm_position_nominal[idx]
-                for idx, joint in enumerate(ARM_JOINT_LIST[3:6]):
-                    Bruce.joint[joint]['q_goal'] = arm_trajectory[idx + 3][self.wave_count]
-            else:
-                for idx, joint in enumerate(ARM_JOINT_LIST):
-                    Bruce.joint[joint]['q_goal'] = arm_trajectory[idx][self.wave_count]
-            Bruce.set_command_arm_positions()
-            self.wave_count += 1
-        else:
-            self.wave_count = 0
-            self.in_wave = False
-            val = random.random()
-            if val > 0.666:
-                self.wave_hand = -1
-            elif val > 0.333:
-                self.wave_hand = 1
-            else:
-                self.wave_hand = 2
+        # 1) 选一个时间参数：用全局时间或自增计数
+        t_global = Bruce.get_time()
+
+        # 2) 选一个步长时间：先用 Ts（或从高层传进来的 Ts_sol）
+        Ts_step = Ts
+
+        # 3) 用当前期望速度做幅度调节（这里是用户指令，单位 cm/s，大概除 100 变成 m/s）
+        vxd = self.parameter[COM_VELOCITY_X]['value_filter'] / 100.0
+        vyd = self.parameter[COM_VELOCITY_Y]['value_filter'] / 100.0
+
+        # 4) 生成 6 个关节目标角
+        q_arm = get_arm_joint_targets(t_global, Ts_step, vxd, vyd)
+
+        print('Arm Joint Targets:', q_arm)
+
+        # 5) 写回到关节目标并下发
+        for idx, joint in enumerate(ARM_JOINT_LIST):
+            Bruce.joint[joint]['q_goal'] = q_arm[idx]
+        Bruce.set_command_arm_positions()
 
     def display(self):
         # get BEAR info

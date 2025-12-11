@@ -79,7 +79,7 @@ PARAMETER_ID_LIST      = range(13)
 PARAMETER_INCREMENT    = [ 0.05,  0.05,  0.002,       1,     1,     2,    0.01,  0.01,     1,       1,     1,  0.01,       1]
 PARAMETER_DEFAULT      = [ 0.00,  0.00,  0.000,       0,     0,     0,     0.0,   0.0,     0,       0,     0,  0.05,       0]
 PARAMETER_MAX          = [ 0.20,  0.50,  0.020,       8,    10,    20,    0.10,  0.10,    15,      10,    10,  0.08,       5]
-PARAMETER_MIN          = [-0.20, -0.50, -0.030,      -8,   -10,   -20,   -0.10, -0.10,   -15,     -10,   -10,  0.03,       0]
+PARAMETER_MIN          = [-0.20, -0.50, -0.160,      -8,   -10,   -20,   -0.10, -0.10,   -15,     -10,   -10,  0.03,       0]
 PARAMETER_BUTTON_PLUS  = [  'g',   'j',    'l',     'y',   'i',   'p',     'w',   'a',   'q',     'x',   'v',   'm',     '=']
 PARAMETER_BUTTON_MINUS = [  'f',   'h',    'k',     't',   'u',   'o',     's',   'd',   'e',     'z',   'c',   'n',     '-']
 PARAMETER_TYPE         = ['len', 'len',  'len',   'ang', 'ang', 'ang',   'len', 'len', 'ang',   'ang', 'ang', 'len',   'len']
@@ -122,3 +122,39 @@ for tdx in traj_time:
 
 for i in range(6):
     arm_trajectory[i] = np.append(arm_trajectory[i], np.linspace(arm_trajectory[i][-1], arm_position_nominal[i], 20, endpoint=True))
+
+
+def get_arm_joint_targets(t_global,
+                          Ts_step,
+                          vxd,
+                          vyd,
+                          arm_nominal=arm_position_nominal,
+                          base_amp=0.15,
+                          k_speed=1.0,
+                          max_amp=2):
+
+    # 步态周期（左右腿各一步）
+    gait_period = max(2.0 * Ts_step, 1e-3)
+    omega = 2.0 * np.pi / gait_period  # 角频率
+
+    # 当前“行走速度标量”，决定摆幅
+    v_mag = np.sqrt(vxd ** 2 + vyd ** 2)
+    amp = base_amp + k_speed * v_mag
+    amp = np.clip(amp, 0.0, max_amp)
+
+    # 基于全局时间的相位
+    phase = omega * t_global
+
+    # 以名义姿态为基准
+    q_arm = np.array(arm_nominal, dtype=float)
+
+    # 假设关节 0 / 3 主要是肩前后摆（你可以根据实际关节映射修改）
+    # 右臂正摆、左臂反摆
+    q_arm[0] += amp * np.sin(phase)      # 右肩：前后摆
+    q_arm[3] += amp * np.sin(phase)      # 左肩：反向
+
+    # 如果想在肘部也加一点小摆动，可以解注释下面两行：
+    # q_arm[2] += 0.3 * amp * np.sin(phase)
+    # q_arm[5] -= 0.3 * amp * np.sin(phase)
+
+    return q_arm
