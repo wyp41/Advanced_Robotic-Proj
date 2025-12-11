@@ -283,22 +283,20 @@ class UserCommand(object):
     #             self.wave_hand = 2
 
     def wave(self):
-        # 1) 选一个时间参数：用全局时间或自增计数
-        t_global = Bruce.get_time()
+        # 从高层控制获取当前支撑腿和步相
+        pd = MM.PLANNER_COMMAND.get()
+        leg_st     = pd['leg_st'][0]
+        step_phase = pd['step_phase'][0]
+        print('leg_st:', leg_st, 'step_phase:', step_phase)
 
-        # 2) 选一个步长时间：先用 Ts（或从高层传进来的 Ts_sol）
-        Ts_step = Ts
+        # 用用户期望 CoM 速度调节摆臂幅度（单位 cm/s）
+        vxd = self.parameter[COM_VELOCITY_X]['value_filter']
+        vyd = self.parameter[COM_VELOCITY_Y]['value_filter']
 
-        # 3) 用当前期望速度做幅度调节（这里是用户指令，单位 cm/s，大概除 100 变成 m/s）
-        vxd = self.parameter[COM_VELOCITY_X]['value_filter'] / 100.0
-        vyd = self.parameter[COM_VELOCITY_Y]['value_filter'] / 100.0
+        # 生成 6 个关节目标角（按步相摆臂）
+        q_arm = get_arm_joint_targets_from_step(leg_st, step_phase, vxd, vyd)
 
-        # 4) 生成 6 个关节目标角
-        q_arm = get_arm_joint_targets(t_global, Ts_step, vxd, vyd)
-
-        print('Arm Joint Targets:', q_arm)
-
-        # 5) 写回到关节目标并下发
+        # 写回到关节目标并下发
         for idx, joint in enumerate(ARM_JOINT_LIST):
             Bruce.joint[joint]['q_goal'] = q_arm[idx]
         Bruce.set_command_arm_positions()

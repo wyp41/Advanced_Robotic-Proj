@@ -403,10 +403,12 @@ def main_loop():
                   'com_xy_velocity': np.zeros(2),
                   'yaw_rate': np.zeros(1)}
     MM.USER_COMMAND.set(input_data)
-    # Planner command data (mode, phase, body rotation matrix).
-    plan_data = {'mode':  np.zeros(1),
-                 'phase': np.zeros(1),
-                 'body_rot_matrix': np.copy(Bruce.R_yaw)}
+    # Planner command data (mode, phase, body rotation matrix, leg state, step phase).
+    plan_data = {'mode':        np.zeros(1),
+                 'phase':       np.zeros(1),
+                 'body_rot_matrix': np.copy(Bruce.R_yaw),
+                 'leg_st':      np.zeros(1),
+                 'step_phase':  np.zeros(1)}
     # robot mode - balance 0
     #              walking 1
     # robot phase - double stance 0
@@ -601,6 +603,14 @@ def main_loop():
             Te = loop_start_time - T0
             te = loop_start_time - t0
             tr = Ts_sol - te
+
+            # update leg state and normalized step phase for other threads
+            if Ts_sol > 0.:
+                step_phase = max(0.0, min(1.0, te / Ts_sol))
+            else:
+                step_phase = 0.0
+            plan_data['leg_st']     = np.array([leg_st])
+            plan_data['step_phase'] = np.array([step_phase])
 
             # check threading error
             if Bruce.thread_error():

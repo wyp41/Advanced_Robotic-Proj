@@ -18,7 +18,7 @@ from collections import defaultdict
 # Walking
 # foot swing trajectory
 Ts     = 0.24   # desired stance phase duration [s]
-Ts_min = 0.20   # minimum stance duration       [s]
+Ts_min = 0.20  # minimum stance duration       [s]
 Ts_max = 0.28   # maximum stance duration       [s]
 T_buff = 0.05   # stop plan before T - T_buff   [s]
 
@@ -30,7 +30,7 @@ Tyi = 0.00      # y stay before Tyi
 Tyn = 0.05      # y go to nominal before Tyn
 Tyf = 0.00      # y arrive before T - Tyf
 
-Tzm = 0.10      # desired swing apex time [s]
+Tzm = 0.10     # desired swing apex time [s]
 Tzf = 0.00      # z arrive before T - Tzf
 
 zm_l = 0.035    # left  swing apex height [m]
@@ -78,8 +78,8 @@ COOLING_SPEED      = 12
 PARAMETER_ID_LIST      = range(13)
 PARAMETER_INCREMENT    = [ 0.05,  0.05,  0.002,       1,     1,     2,    0.01,  0.01,     1,       1,     1,  0.01,       1]
 PARAMETER_DEFAULT      = [ 0.00,  0.00,  0.000,       0,     0,     0,     0.0,   0.0,     0,       0,     0,  0.05,       0]
-PARAMETER_MAX          = [ 0.20,  0.50,  0.020,       8,    10,    20,    0.10,  0.10,    15,      10,    10,  0.08,       5]
-PARAMETER_MIN          = [-0.20, -0.50, -0.160,      -8,   -10,   -20,   -0.10, -0.10,   -15,     -10,   -10,  0.03,       0]
+PARAMETER_MAX          = [ 0.20,  0.50,  0.020,       8,    10,    20,    1.0,  0.10,    15,      10,    10,  0.08,       5]
+PARAMETER_MIN          = [-0.20, -0.50, -0.160,      -8,   -10,   -20,   -1.0, -0.10,   -15,     -10,   -10,  0.03,       0]
 PARAMETER_BUTTON_PLUS  = [  'g',   'j',    'l',     'y',   'i',   'p',     'w',   'a',   'q',     'x',   'v',   'm',     '=']
 PARAMETER_BUTTON_MINUS = [  'f',   'h',    'k',     't',   'u',   'o',     's',   'd',   'e',     'z',   'c',   'n',     '-']
 PARAMETER_TYPE         = ['len', 'len',  'len',   'ang', 'ang', 'ang',   'len', 'len', 'ang',   'ang', 'ang', 'len',   'len']
@@ -124,37 +124,74 @@ for i in range(6):
     arm_trajectory[i] = np.append(arm_trajectory[i], np.linspace(arm_trajectory[i][-1], arm_position_nominal[i], 20, endpoint=True))
 
 
-def get_arm_joint_targets(t_global,
-                          Ts_step,
-                          vxd,
-                          vyd,
-                          arm_nominal=arm_position_nominal,
-                          base_amp=0.15,
-                          k_speed=1.0,
-                          max_amp=2):
+# def get_arm_joint_targets(t_global,
+#                           Ts_step,
+#                           vxd,
+#                           vyd,
+#                           arm_nominal=arm_position_nominal,
+#                           base_amp=0.15,
+#                           k_speed=1.0,
+#                           max_amp=0.75):
 
-    # 步态周期（左右腿各一步）
-    gait_period = max(2.0 * Ts_step, 1e-3)
-    omega = 2.0 * np.pi / gait_period  # 角频率
+#     # 步态周期（左右腿各一步）
+#     gait_period = max(2.0 * Ts_step, 1e-3)
+#     omega = 2.0 * np.pi / gait_period  # 角频率
 
-    # 当前“行走速度标量”，决定摆幅
+#     # 当前“行走速度标量”，决定摆幅
+#     v_mag = np.sqrt(vxd ** 2 + vyd ** 2)
+#     amp = base_amp + k_speed * v_mag
+#     amp = np.clip(amp, 0.0, max_amp)
+#     print('Arm Swing Amplitude:', amp)
+
+#     # 基于全局时间的相位
+#     phase = omega * t_global
+
+#     # 以名义姿态为基准
+#     q_arm = np.array(arm_nominal, dtype=float)
+
+#     # 假设关节 0 / 3 主要是肩前后摆（你可以根据实际关节映射修改）
+#     # 右臂正摆、左臂反摆
+#     q_arm[0] += amp * np.sin(phase) + 0.4      # 右肩：前后摆
+#     q_arm[3] -= amp * np.sin(phase) + 0.4     # 左肩：反向
+#     # q_arm[3] += amp * np.sin(phase) - 0.4     # 左肩：反向
+
+#     # 如果想在肘部也加一点小摆动，可以解注释下面两行：
+#     # q_arm[2] += 0.3 * amp * np.sin(phase)
+#     # q_arm[5] -= 0.3 * amp * np.sin(phase)
+
+#     return q_arm
+
+def get_arm_joint_targets_from_step(leg_st,
+                                    step_phase,   # 0~1 之间的步相
+                                    vxd,
+                                    vyd,
+                                    arm_nominal=arm_position_nominal,
+                                    base_amp=0.05,
+                                    k_speed=0.2,
+                                    max_amp=0.75,
+                                    shoulder_offset=0.40):
+
+    # 限制步相在 [0, 1]
+    step_phase = np.clip(step_phase, 0.0, 1.0)
+
+    # 速度决定摆幅
     v_mag = np.sqrt(vxd ** 2 + vyd ** 2)
     amp = base_amp + k_speed * v_mag
     amp = np.clip(amp, 0.0, max_amp)
 
-    # 基于全局时间的相位
-    phase = omega * t_global
+    # 用步相算相位：一条腿一个完整 2π
+    # 右支撑(leg_st=+1)、左支撑(leg_st=-1)之间错开半个周期
+    if leg_st == +1:
+        gait_phase = step_phase           # 右支撑时，相位 [0,1)
+    else:
+        gait_phase = step_phase + 0.5     # 左支撑时，相位平移半周期
 
-    # 以名义姿态为基准
+    phase = 2.0 * np.pi * gait_phase
+
     q_arm = np.array(arm_nominal, dtype=float)
 
-    # 假设关节 0 / 3 主要是肩前后摆（你可以根据实际关节映射修改）
-    # 右臂正摆、左臂反摆
-    q_arm[0] += amp * np.sin(phase)      # 右肩：前后摆
-    q_arm[3] += amp * np.sin(phase)      # 左肩：反向
-
-    # 如果想在肘部也加一点小摆动，可以解注释下面两行：
-    # q_arm[2] += 0.3 * amp * np.sin(phase)
-    # q_arm[5] -= 0.3 * amp * np.sin(phase)
+    # 右臂 / 左臂反相摆动 + 小的前伸 offset
+    q_arm[0] += shoulder_offset + amp * np.sin(phase)   # 右肩
+    q_arm[3] += -shoulder_offset + amp * np.sin(phase)   # 左肩
 
     return q_arm
