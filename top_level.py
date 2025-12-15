@@ -62,6 +62,7 @@ class UserCommand(object):
 
         # self parameters
         self.time = 0
+        self.start_time = time.time()
         self.task1_start = False
         self.task2_start = False
         self.step = np.array([-0.01]*13)
@@ -283,20 +284,20 @@ class UserCommand(object):
     #             self.wave_hand = 2
 
     def wave(self):
-        # 从高层控制获取当前支撑腿和步相
         pd = MM.PLANNER_COMMAND.get()
         leg_st     = pd['leg_st'][0]
         step_phase = pd['step_phase'][0]
         print('leg_st:', leg_st, 'step_phase:', step_phase)
 
-        # 用用户期望 CoM 速度调节摆臂幅度（单位 cm/s）
         vxd = self.parameter[COM_VELOCITY_X]['value_filter']
         vyd = self.parameter[COM_VELOCITY_Y]['value_filter']
 
-        # 生成 6 个关节目标角（按步相摆臂）
+        # prototype 1
+        # q_arm = get_arm_joint_targets(time.time() - self.start_time, Ts, vxd, vyd)
+        
+        # prototype 2
         q_arm = get_arm_joint_targets_from_step(leg_st, step_phase, vxd, vyd)
 
-        # 写回到关节目标并下发
         for idx, joint in enumerate(ARM_JOINT_LIST):
             Bruce.joint[joint]['q_goal'] = q_arm[idx]
         Bruce.set_command_arm_positions()
